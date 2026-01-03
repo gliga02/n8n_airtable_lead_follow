@@ -1,0 +1,1516 @@
+{
+  "name": "Airtable Lead Follow Up",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "={{ $('Update Lead Table').item.json.fields.website }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 5000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        64
+      ],
+      "id": "89bb96c0-93c0-4298-986a-5410add5676f",
+      "name": "HTTP Request",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.fields.priority }}",
+                    "rightValue": "High",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "e79d7a8d-646d-45bb-a2ee-681da5e4e024"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "High"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "b3150b3b-4524-44fc-ac67-d7e52b21503d",
+                    "leftValue": "={{ $json.fields.priority }}",
+                    "rightValue": "Medium",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Medium"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c49278b7-42b4-40c4-a293-cca6b673f7a8",
+                    "leftValue": "={{ $json.fields.priority }}",
+                    "rightValue": "Low",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Low"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1568,
+        48
+      ],
+      "id": "8fa5eb55-d727-4f36-8f33-6fd20185923c",
+      "name": "Switch"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2240,
+        160
+      ],
+      "id": "079fa4b2-2859-47e8-a301-8ecf8f496041",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const freeProviders = ['gmail.com','yahoo.com','outlook.com','hotmail.com','icloud.com','aol.com','proton.me','protonmail.com','gmx.com','yandex.com','mail.com','zoho.com'];\n\nconst email =\n  $input.first().json.fields.email  || '';\n\nconst domain = email.includes('@') ? email.split('@')[1].toLowerCase() : '';\nconst isFree = freeProviders.includes(domain);\n\nreturn {\n  json: { Email: email, email_domain: domain, is_free_email: isFree }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        64
+      ],
+      "id": "8d4ada8f-47b8-4408-9e9f-6ec15e98dd72",
+      "name": "Checking Email Provider"
+    },
+    {
+      "parameters": {
+        "jsCode": "const html = $input.first().json.data || '';\nconst status = $input.first().json.statusCode || 0;\n\n// Live if 200/301/302\nconst isLive = [200, 301, 302].includes(status);\n\n// Extract <title>\nconst titleMatch = html.match(/<title[^>]*>([^<]*)<\\/title>/i);\nconst title = titleMatch ? titleMatch[1].trim() : '';\n\n// Extract meta description and og tags\nfunction extractMeta(nameOrProperty) {\n  const re = new RegExp(`<meta[^>]+(?:name|property)=[\\\"']description[\\\"'][^>]*content=[\\\"']([^\\\"']*)[\\\"'][^>]*>`, 'i');\n  const m = html.match(re);\n  return m ? m[1].trim() : '';\n}\nconst metaDescription = extractMeta('description') || extractMeta('og:description');\nconst ogTitle = extractMeta('og:title');\n\n// Contact/About link detection\nconst hasContact = /href=[\\\"'][^\\\"']*contact[^\\\"']*[\\\"']/i.test(html);\nconst hasAbout = /href=[\\\"'][^\\\"']*about[^\\\"']*[\\\"']/i.test(html);\n\n// Basic scoring (tweak weights as you like)\nlet scoreSignals = 0;\nif (!$('Checking Email Provider').first().json.is_free_email && $('Checking Email Provider').first().json.email_domain) scoreSignals += 20; // business email\nif ($('Checking Email Provider').first().json.is_free_email) scoreSignals -= 10; // free provider penalty\nif (isLive) scoreSignals += 15;\nif (hasContact) scoreSignals += 5;\nif (hasAbout) scoreSignals += 5;\n\n// Notes for Airtable\nconst notes = [\n  title ? `Title: ${title}` : '',\n  metaDescription ? `Meta: ${metaDescription}` : '',\n  ogTitle ? `OG Title: ${ogTitle}` : '',\n  `Live: ${isLive ? 'yes' : 'no'}`,\n  `Contact link: ${hasContact ? 'yes' : 'no'}`,\n  `About link: ${hasAbout ? 'yes' : 'no'}`\n].filter(Boolean).join(' | ');\n\nreturn [\n  {\n    json: {\n      ...$json,\n      site_live: isLive,\n      has_contact_link: hasContact,\n      has_about_link: hasAbout,\n      html_title: title,\n      html_meta_description: metaDescription || ogTitle || '',\n      light_enrichment_score: scoreSignals,\n      light_enrichment_notes: notes\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        64
+      ],
+      "id": "c5c26144-3eda-4d6c-8d01-95c7525083bb",
+      "name": "Enrichment Eval"
+    },
+    {
+      "parameters": {
+        "jsCode": "const score = Number($input.first().json.light_enrichment_score || 0);\nlet priority = 'Low';\nif (score >= 25) priority = 'High';\nelse if (score >= 10) priority = 'Medium';\n\nreturn {\n  json: {\n    score: score,\n    priority: priority\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        64
+      ],
+      "id": "93203ef4-9b97-4f5b-805a-fffdb8e62576",
+      "name": "Priority Calc"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "base": {
+          "__rl": true,
+          "value": "app2mC0xV8hSPbgqU",
+          "mode": "list",
+          "cachedResultName": "Lead Ops",
+          "cachedResultUrl": "https://airtable.com/app2mC0xV8hSPbgqU"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbld6BxYxeCfI0obd",
+          "mode": "list",
+          "cachedResultName": "Leads",
+          "cachedResultUrl": "https://airtable.com/app2mC0xV8hSPbgqU/tbld6BxYxeCfI0obd"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "score": 0,
+            "full_name": "={{ $json.Name }}",
+            "email": "={{ $json['Email:'] }}",
+            "company": "={{ $json['Company:'] }}",
+            "status": "new",
+            "website": "={{ $json['Website:'] }}",
+            "source": "typeform",
+            "use_case": "={{ $json['Usecase:'] }}",
+            "budget": "={{ $json['Budget:'] }}",
+            "created_at": "={{ $today }}",
+            "lead_hash": "={{ $json.Name }} | {{ $json['Email:'] }}"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "full_name",
+              "displayName": "full_name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "low",
+                  "value": "low"
+                },
+                {
+                  "name": "medium",
+                  "value": "medium"
+                },
+                {
+                  "name": "high",
+                  "value": "high"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "new",
+                  "value": "new"
+                },
+                {
+                  "name": "enriched",
+                  "value": "enriched"
+                },
+                {
+                  "name": "notified",
+                  "value": "notified"
+                },
+                {
+                  "name": "in sequence",
+                  "value": "in sequence"
+                },
+                {
+                  "name": "closed",
+                  "value": "closed"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "typeform",
+                  "value": "typeform"
+                },
+                {
+                  "name": "manual",
+                  "value": "manual"
+                },
+                {
+                  "name": "import",
+                  "value": "import"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "use_case",
+              "displayName": "use_case",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "0-500",
+                  "value": "0-500"
+                },
+                {
+                  "name": "500-1000",
+                  "value": "500-1000"
+                },
+                {
+                  "name": "1000-2000",
+                  "value": "1000-2000"
+                },
+                {
+                  "name": "2000-5000",
+                  "value": "2000-5000"
+                },
+                {
+                  "name": "5000+",
+                  "value": "5000+"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lead_hash",
+              "displayName": "lead_hash",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        64
+      ],
+      "id": "7a261596-948b-43b5-8f68-09e0ca58f89f",
+      "name": "Update Lead Table",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "bryRBgA3UhEZrXe4",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "formId": "JPxue7bT"
+      },
+      "type": "n8n-nodes-base.typeformTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        64
+      ],
+      "id": "0eb4235f-0c2f-4c79-9b16-d48587228b1c",
+      "name": "On Filled Typeform",
+      "webhookId": "bb60dacf-2383-467e-8145-6d495bf1f43e",
+      "credentials": {
+        "typeformApi": {
+          "id": "hIaSC4ZhYUx10n3q",
+          "name": "Typeform account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "base": {
+          "__rl": true,
+          "value": "app2mC0xV8hSPbgqU",
+          "mode": "list",
+          "cachedResultName": "Lead Ops",
+          "cachedResultUrl": "https://airtable.com/app2mC0xV8hSPbgqU"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbld6BxYxeCfI0obd",
+          "mode": "list",
+          "cachedResultName": "Leads",
+          "cachedResultUrl": "https://airtable.com/app2mC0xV8hSPbgqU/tbld6BxYxeCfI0obd"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "priority": "={{ $json.priority }}",
+            "status": "scored",
+            "score": "={{ $json.score }}",
+            "full_name": "={{ $('On Filled Typeform').item.json.Name }}",
+            "email": "={{ $('On Filled Typeform').item.json['Email:'] }}",
+            "company": "={{ $('On Filled Typeform').item.json['Company:'] }}"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "full_name",
+              "displayName": "full_name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Low",
+                  "value": "Low"
+                },
+                {
+                  "name": "Medium",
+                  "value": "Medium"
+                },
+                {
+                  "name": "High",
+                  "value": "High"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "new",
+                  "value": "new"
+                },
+                {
+                  "name": "enriched",
+                  "value": "enriched"
+                },
+                {
+                  "name": "notified",
+                  "value": "notified"
+                },
+                {
+                  "name": "in sequence",
+                  "value": "in sequence"
+                },
+                {
+                  "name": "closed",
+                  "value": "closed"
+                },
+                {
+                  "name": "scored",
+                  "value": "scored"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "typeform",
+                  "value": "typeform"
+                },
+                {
+                  "name": "manual",
+                  "value": "manual"
+                },
+                {
+                  "name": "import",
+                  "value": "import"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "use_case",
+              "displayName": "use_case",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "0-500",
+                  "value": "0-500"
+                },
+                {
+                  "name": "500-1000",
+                  "value": "500-1000"
+                },
+                {
+                  "name": "1000-2000",
+                  "value": "1000-2000"
+                },
+                {
+                  "name": "2000-5000",
+                  "value": "2000-5000"
+                },
+                {
+                  "name": "5000+",
+                  "value": "5000+"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lead_hash",
+              "displayName": "lead_hash",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1344,
+        64
+      ],
+      "id": "2007e53b-ff0c-4ed7-a0e4-aba638a84277",
+      "name": "Update Priority",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "bryRBgA3UhEZrXe4",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "REPLACE_WITH_YOUR_TELEGRAM_TOKEN",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1792,
+        -128
+      ],
+      "id": "fe418e54-f5af-4d0d-93b0-a912da8c39e4",
+      "name": "Telegram API Conn"
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "hours"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        64
+      ],
+      "id": "9e26ae46-aa86-452e-a846-82c31fc0f924",
+      "name": "Medium Wait",
+      "webhookId": "aa1f8551-1882-47af-8662-522dceaf1cda"
+    },
+    {
+      "parameters": {
+        "amount": 24,
+        "unit": "hours"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1792,
+        256
+      ],
+      "id": "03b20b94-6080-4982-8af7-b6ef585e5fba",
+      "name": "Low Wait",
+      "webhookId": "f92abcdd-a858-40f0-8209-2d57a189b442"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.fields.email }}",
+        "subject": "=Follow-up: {{ $json.fields.company }} - Let's connect!",
+        "message": "=Hi {{ $json.fields.full_name }},  Thank you for your interest in our services. I noticed you're from {{ $json.fields.company }} and wanted to reach out personally.  Based on your company profile, I believe we could help you with [specific value proposition].  Would you be available for a quick 15-minute call this week to discuss your needs?  Best regards, [Your Name] [Your Title] [Your Company]  --- This email was sent because you submitted our form. If you'd prefer not to receive follow-ups, please reply with \"unsubscribe\".",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2016,
+        64
+      ],
+      "id": "fabad3a6-61f2-447d-8b69-a4b4d3bb5777",
+      "name": "Send a message Medium",
+      "webhookId": "1be4c7ea-4c5b-4778-acd3-cf8490384092",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "eAPCYpzXSCszFLzu",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.fields.email }}",
+        "subject": "=Thank you for your interest - {{$json[\"Company\"]}}",
+        "message": "=Hi {{$json[\"Name\"]}},\n\nThank you for taking the time to fill out our form. We appreciate your interest in our services.\n\nWhile we're currently focusing on high-priority opportunities, we'd love to stay in touch for future possibilities.\n\nHere are some resources that might be helpful:\n- [Link to your blog/resources]\n- [Link to case studies]\n- [Link to newsletter signup]\n\nWe'll reach out again in a few months to see if there's a better time to connect.\n\nBest regards,\n[Your Name]\n[Your Title]",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2016,
+        256
+      ],
+      "id": "873f9b8e-fbe5-4d5f-9bec-8a98ed92ef40",
+      "name": "Send a message Low",
+      "webhookId": "1be4c7ea-4c5b-4778-acd3-cf8490384092",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "eAPCYpzXSCszFLzu",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "app2mC0xV8hSPbgqU",
+          "mode": "list",
+          "cachedResultName": "Lead Ops",
+          "cachedResultUrl": "https://airtable.com/app2mC0xV8hSPbgqU"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbld6BxYxeCfI0obd",
+          "mode": "list",
+          "cachedResultName": "Leads",
+          "cachedResultUrl": "https://airtable.com/app2mC0xV8hSPbgqU/tbld6BxYxeCfI0obd"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "score": 0,
+            "status": "notified"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "full_name",
+              "displayName": "full_name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Low",
+                  "value": "Low"
+                },
+                {
+                  "name": "Medium",
+                  "value": "Medium"
+                },
+                {
+                  "name": "High",
+                  "value": "High"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "new",
+                  "value": "new"
+                },
+                {
+                  "name": "notified",
+                  "value": "notified"
+                },
+                {
+                  "name": "follow-up sent",
+                  "value": "follow-up sent"
+                },
+                {
+                  "name": "scored",
+                  "value": "scored"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "typeform",
+                  "value": "typeform"
+                },
+                {
+                  "name": "manual",
+                  "value": "manual"
+                },
+                {
+                  "name": "import",
+                  "value": "import"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "use_case",
+              "displayName": "use_case",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "0-500",
+                  "value": "0-500"
+                },
+                {
+                  "name": "500-1000",
+                  "value": "500-1000"
+                },
+                {
+                  "name": "1000-2000",
+                  "value": "1000-2000"
+                },
+                {
+                  "name": "2000-5000",
+                  "value": "2000-5000"
+                },
+                {
+                  "name": "5000+",
+                  "value": "5000+"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lead_hash",
+              "displayName": "lead_hash",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        2240,
+        -128
+      ],
+      "id": "6075edb1-2b45-4e53-88ce-d8c8c18902f5",
+      "name": "Update Status high",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "bryRBgA3UhEZrXe4",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "app2mC0xV8hSPbgqU",
+          "mode": "list",
+          "cachedResultName": "Lead Ops",
+          "cachedResultUrl": "https://airtable.com/app2mC0xV8hSPbgqU"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbld6BxYxeCfI0obd",
+          "mode": "list",
+          "cachedResultName": "Leads",
+          "cachedResultUrl": "https://airtable.com/app2mC0xV8hSPbgqU/tbld6BxYxeCfI0obd"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{ $('Update Priority').item.json.fields.email }}",
+            "status": "follow-up sent"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "full_name",
+              "displayName": "full_name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Low",
+                  "value": "Low"
+                },
+                {
+                  "name": "Medium",
+                  "value": "Medium"
+                },
+                {
+                  "name": "High",
+                  "value": "High"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "new",
+                  "value": "new"
+                },
+                {
+                  "name": "notified",
+                  "value": "notified"
+                },
+                {
+                  "name": "follow-up sent",
+                  "value": "follow-up sent"
+                },
+                {
+                  "name": "scored",
+                  "value": "scored"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "typeform",
+                  "value": "typeform"
+                },
+                {
+                  "name": "manual",
+                  "value": "manual"
+                },
+                {
+                  "name": "import",
+                  "value": "import"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "use_case",
+              "displayName": "use_case",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "0-500",
+                  "value": "0-500"
+                },
+                {
+                  "name": "500-1000",
+                  "value": "500-1000"
+                },
+                {
+                  "name": "1000-2000",
+                  "value": "1000-2000"
+                },
+                {
+                  "name": "2000-5000",
+                  "value": "2000-5000"
+                },
+                {
+                  "name": "5000+",
+                  "value": "5000+"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "lead_hash",
+              "displayName": "lead_hash",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        2464,
+        160
+      ],
+      "id": "c46d6dc3-a327-4eb6-b561-ddf58ca87235",
+      "name": "Update Status medium/low",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "bryRBgA3UhEZrXe4",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Enrichment Eval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Telegram API Conn",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Medium Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Low Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Update Status medium/low",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Checking Email Provider": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrichment Eval": {
+      "main": [
+        [
+          {
+            "node": "Priority Calc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Priority Calc": {
+      "main": [
+        [
+          {
+            "node": "Update Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Lead Table": {
+      "main": [
+        [
+          {
+            "node": "Checking Email Provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On Filled Typeform": {
+      "main": [
+        [
+          {
+            "node": "Update Lead Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Priority": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram API Conn": {
+      "main": [
+        [
+          {
+            "node": "Update Status high",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Medium Wait": {
+      "main": [
+        [
+          {
+            "node": "Send a message Medium",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Low Wait": {
+      "main": [
+        [
+          {
+            "node": "Send a message Low",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message Medium": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message Low": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6dfb5bd3-64d4-4904-8ad7-1d05d9dc2ff1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "79cffd66a61db621879d318898282b678210168f1d2bb38bd6398180e86a73c2"
+  },
+  "id": "sZaiA6nCxnihYB5I",
+  "tags": []
+}
